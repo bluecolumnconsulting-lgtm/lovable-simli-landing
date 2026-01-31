@@ -1,0 +1,41 @@
+import asyncio
+from livekit import agents, rtc
+from livekit.agents import JobContext, WorkerOptions, cli
+from livekit.agents.llm import ChatContext, ChatMessage
+from livekit.plugins import openai, silero
+from simli import SimliClient
+
+async def entrypoint(ctx: JobContext):
+    await ctx.connect()
+    
+    # Initialize components
+    vad = silero.VAD.load()
+    stt = openai.STT()
+    llm = openai.LLM(model="gpt-4o-mini")
+    tts = openai.TTS(voice="nova")
+    
+    # Simli avatar
+    simli = SimliClient(face_id="tmp9i8bbq7c")
+    
+    chat_ctx = ChatContext()
+    chat_ctx.append(ChatMessage(
+        role="system",
+        content="You are Marina, a friendly reef tank advisor for OttoMedic protein skimmers. Keep responses brief and helpful."
+    ))
+    
+    assistant = agents.VoicePipelineAgent(
+        vad=vad, stt=stt, llm=llm, tts=tts,
+        chat_ctx=chat_ctx
+    )
+    
+    # Pipe TTS audio to Simli for lip-sync video
+    @assistant.on("agent_speech_started")
+    async def on_speech(audio_frames):
+        async for frame in audio_frames:
+            await simli.send_audio(frame)
+    
+    assistant.start(ctx.room)
+    await assistant.say("Hi! I'm Marina. How can I help with your reef tank today?")
+
+if __name__ == "__main__":
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
